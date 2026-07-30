@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>COM-Tool V2.0 串口调试助手</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <nav class="menubar">
+    <button id="btn-new-window" class="menu">＋ 新建窗口</button>
+    <button id="btn-serial-settings" class="menu">串口设置</button>
+    <button id="btn-show-multi" class="menu menu-blue active">多字符串</button>
+    <button id="btn-show-protocol" class="menu menu-orange">协议解析</button>
+    <div class="connection-summary"><i></i><span id="conn-state" class="badge badge-off">未连接</span></div>
+  </nav>
+
+  <div id="workarea">
+    <main id="center">
+      <div class="pane-title">
+        <span>接收区 <small>单击选中报文 · Shift/Ctrl 多选 · 双击复制</small></span>
+        <div class="pane-actions"><button id="btn-auto-scroll" class="mini">自动滚动</button><label class="ck" title="点击接收区数据后立即调用协议工具解析"><input id="click-parse" type="checkbox" checked> 点击即解析</label><button id="btn-pause" class="mini">暂停</button><button id="btn-clear" class="mini">清屏</button></div>
+      </div>
+      <div id="rx-list" tabindex="0"></div>
+    </main>
+
+    <div class="vsplit" data-resize="right" title="拖动调整右侧面板宽度"></div>
+
+    <aside id="right">
+      <section id="multi-view" class="right-view active">
+        <div class="pane-title"><span>多字符串发送</span><small>名称点击发送，名称和指令均可双击编辑</small></div>
+        <div class="dock-toolbar">
+          <label class="ck"><input type="checkbox" id="multi-loop"> 循环发送</label>
+          <label class="ck"><input type="checkbox" id="multi-hex" checked> HEX</label>
+          <button id="btn-multi-import" class="mini">导入 INI</button>
+          <button id="btn-multi-export" class="mini">导出 INI</button>
+          <button id="btn-add-multi" class="mini">＋ 添加</button>
+        </div>
+        <div class="multi-head"><span>启用</span><span>字符串 / 指令</span><span>名称（点击发送）</span><span>顺序</span><span>延时</span><span></span></div>
+        <div id="multi-rows"></div>
+        <div class="multi-footer">
+          <span>默认延时</span><input id="multi-interval" type="number" value="1000" min="10"><span>ms</span>
+          <span class="auto-name-note">导入时按指令自动生成名称</span>
+          <button id="btn-multi-start" class="primary">开始顺序发送</button>
+        </div>
+      </section>
+
+      <div id="right-inner-split" class="vsplit inner-vsplit" data-resize="right-inner" title="拖动调整多字符串与协议解析的宽度"></div>
+
+      <section id="protocol-view" class="right-view">
+        <div class="pane-title"><span>协议解析</span><span id="proto-name" class="badge badge-off">未加载协议</span></div>
+        <div class="proto-bar">
+          <button id="btn-load-proto" class="mini">加载协议工具…</button>
+          <button id="btn-parse-sel" class="primary">解析选中</button>
+          <button id="btn-gen-cmd" class="mini">生成指令</button>
+          <label class="ck"><input type="checkbox" id="auto-parse"> 自动解析</label>
+        </div>
+        <div class="proto-bar">
+          <label class="ck"><input type="checkbox" id="auto-baud"> 波特率自适应</label>
+          <button id="btn-clear-result" class="mini">清空结果</button>
+        </div>
+        <div class="proto-bar baud-cfg" id="baud-cfg-row" style="display:none">
+          <label>候选波特率</label><input id="baud-candidates" type="text" value="9600,115200,256000,57600,38400,19200,14400,4800,2400,1200,230400,460800,921600">
+        </div>
+        <div id="baud-status" class="baud-status"></div>
+        <iframe id="result-frame" sandbox="allow-same-origin"></iframe>
+        <iframe id="parser-frame" style="display:none"></iframe>
+      </section>
+    </aside>
+  </div>
+
+  <section id="bottom-control">
+    <div class="serial-strip">
+      <b>端口</b><select id="cfg-port"></select><button id="btn-refresh" class="refresh" title="刷新串口列表">↻</button>
+      <b>波特率</b><select id="cfg-baud">
+        <option>600</option><option>1200</option><option>2400</option><option>4800</option><option>9600</option><option>14400</option><option>19200</option><option>38400</option><option>43000</option><option>56000</option><option>57600</option><option>115200</option><option>128000</option><option>230400</option><option selected>256000</option><option>460800</option><option>500000</option><option>512000</option><option>600000</option><option>750000</option><option>921600</option><option>1000000</option><option>1500000</option><option>2000000</option><option>3000000</option><option value="custom">自定义…</option>
+      </select><input id="cfg-baud-custom" type="number" placeholder="波特率" style="display:none">
+      <button id="btn-open" class="primary">打开串口</button>
+      <span id="serial-summary">数据位 8　停止位 1　校验 None</span>
+      <label class="ck"><input id="rx-time" type="checkbox" checked> 时间戳</label>
+      <label class="ck"><input id="rx-showtx" type="checkbox" checked> 显示发送</label>
+      <label class="ck"><input id="rx-mode-check" type="checkbox" checked> HEX显示</label>
+      <select id="rx-mode" class="visually-hidden"><option value="hex" selected>HEX</option><option value="str">字符串</option></select>
+      <label>分包 <input id="rx-gap" type="number" value="30" min="0"> ms</label>
+      <button id="btn-save" class="save-btn">保存接收内容</button>
+      <button id="btn-more-settings" class="mini">更多</button>
+    </div>
+
+    <div class="send-area">
+      <div class="send-tabs visually-hidden"><div class="stab active" data-tab="single">单条发送</div></div>
+      <div class="send-panel active" id="panel-single">
+        <textarea id="send-text" placeholder="请输入发送内容；HEX 模式示例：01 02 03 04"></textarea>
+        <button id="btn-send" class="send-main">发送</button>
+        <div class="send-side"><button id="btn-sendfile">发送文件…</button></div>
+      </div>
+      <div id="panel-multi" class="send-panel"></div>
+      <div class="send-options">
+        <label class="ck"><input id="send-hex" type="checkbox" checked> HEX发送</label>
+        <label class="ck"><input id="send-crlf" type="checkbox"> 加回车换行</label>
+        <label class="ck"><input id="send-timed" type="checkbox"> 定时发送</label>
+        <input id="send-interval" type="number" value="1000" min="10"><span>ms</span>
+        <button id="btn-clear-send" class="mini">清空发送</button>
+        <span class="save-note">保存默认文件名为当天日期，保存时选择路径</span>
+        <span class="stats">RX <b id="stat-rx">0</b> B　TX <b id="stat-tx">0</b> B　报文 <b id="stat-pkt">0</b></span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="statusbar">
+    <span><i></i><span id="status-port">串口未打开</span></span>
+    <span>协议：<b id="status-proto">未加载</b></span>
+    <span>自动解析：<b id="status-auto">关闭</b></span>
+    <span class="cur-baud-wrap">当前波特率：<b id="cur-baud">256000</b></span>
+  </footer>
+
+  <aside id="left" class="settings-modal" style="display:none">
+    <div class="settings-dialog">
+      <div class="settings-head"><span>串口基础设置</span><button id="btn-settings-close">×</button></div>
+      <div class="settings-body">
+        <div class="settings-grid">
+          <label>当前串口</label><select id="modal-port"></select>
+          <label>波特率</label><input id="modal-baud" type="number" value="256000">
+          <label>数据位</label><select id="cfg-data"><option selected>8</option><option>7</option><option>6</option><option>5</option></select>
+          <label>停止位</label><select id="cfg-stop"><option selected>1</option><option>2</option></select>
+          <label>校验位</label><select id="cfg-parity"><option value="none">None</option><option value="even">Even</option><option value="odd">Odd</option><option value="mark">Mark</option><option value="space">Space</option></select>
+          <label>流控制</label><select id="cfg-flow"><option value="none">无</option><option value="rtscts">RTS/CTS</option></select>
+          <label>分包间隔</label><div><input id="modal-gap" type="number" value="30" min="0"> ms</div>
+          <label>信号线</label><div class="signal-row"><label class="ck"><input id="sig-rts" type="checkbox"> RTS</label><label class="ck"><input id="sig-dtr" type="checkbox"> DTR</label></div>
+        </div>
+        <p>串口列表来自系统实时扫描。分包间隔仅控制换行，不延迟接收数据显示。</p>
+        <div class="settings-actions"><button id="btn-settings-cancel">取消</button><button id="btn-settings-apply" class="primary">应用设置</button></div>
+      </div>
+    </div>
+  </aside>
+
+  <div id="gen-modal" class="gen-modal" style="display:none">
+    <div class="gen-dialog">
+      <div class="gen-head"><span>协议工具 · 指令生成器</span><div class="gen-actions"><button id="btn-gen-import" class="primary">导入单条发送框</button><button id="btn-gen-import-multi" class="primary">导入多字符串</button><button id="btn-gen-send">导入并发送</button><button id="btn-gen-close">关闭</button></div></div>
+      <iframe id="gen-frame"></iframe>
+    </div>
+  </div>
+
+  <button id="btn-reset-stat" class="visually-hidden">统计清零</button>
+  <div class="api-info visually-hidden"></div>
+</div>
+<script src="protocol.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+# 依赖与打包产物（均可由 npm install / npm run dist 重新生成，非源码）
+node_modules/
+release/
+
+# 杂项
+*.log
+.DS_Store
+Thumbs.db
+
+# 本地 AI 助手配置（不属于项目源码）
+.claude/
+.codex/
+.agents/

@@ -1,0 +1,66 @@
+{
+  "name": "com-tool",
+  "version": "2.0.0",
+  "description": "COM-Tool V2.0 multi-window serial assistant with pluggable protocol parsers",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "prepare-cache": "node scripts/prepare-build-cache.js",
+    "predist": "node scripts/prepare-build-cache.js",
+    "dist": "electron-builder",
+    "dist:portable": "node scripts/prepare-build-cache.js && electron-builder --win portable",
+    "pack": "electron-builder --dir"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "serialport": "^12.0.0"
+  },
+  "build": {
+    "appId": "com.comtool.serial",
+    "productName": "COM-Tool",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "COM-Tool-V2-portable.exe",
+      "unpackDirName": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "COM-Tool-Setup-${version}.exe",
+      "shortcutName": "串口协议助手"
+    }
+  }
+}
