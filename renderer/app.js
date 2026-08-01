@@ -6,6 +6,8 @@
 
   // ── state ────────────────────────────────────────────────────────────────
   let isOpen = false;
+  let transport = 'serial';
+  let preferredNetworkLocalAddress = '0.0.0.0';
   let packets = [];          // { id, time, dir, bytes:[] }
   let pktSeq = 0;
   const selected = new Set();
@@ -20,8 +22,10 @@
   let autoScroll = true;
   let receivePaused = false;
   const STORAGE_KEY = 'com-tool-v2-settings';
+  let persistenceReady = false;
   let preferredPortPath = '';
   let persistTimer = null;
+  let protocolLibraryPath = '';
 
   Protocol.init();
 
@@ -118,11 +122,33 @@
       }
     } else {
       const opt = document.createElement('option');
-      opt.textContent = res.ok ? '（无可用串口）' : ('错误: ' + res.error);
+      if (prev) {
+        opt.value = prev;
+        opt.textContent = `${prev}（上次使用，当前未检测到）`;
+      } else opt.textContent = res.ok ? '（无可用串口）' : ('错误: ' + res.error);
       sel.appendChild(opt);
+      if (prev) sel.value = prev;
     }
     syncModalPortOptions();
     preferredPortPath = sel.value || preferredPortPath;
+  }
+
+  async function refreshNetworkAddresses() {
+    const res = await window.networkAPI.listAddresses();
+    const sel = $('cfg-network-local-address');
+    const previous = preferredNetworkLocalAddress || sel.value || '0.0.0.0';
+    sel.innerHTML = '';
+    if (!res.ok) {
+      const option = document.createElement('option');
+      option.value = '0.0.0.0'; option.textContent = '0.0.0.0'; sel.appendChild(option);
+      return;
+    }
+    res.addresses.forEach((item) => {
+      const option = document.createElement('option');
+      option.value = item.address; option.textContent = item.label; sel.appendChild(option);
+    });
+    sel.value = [...sel.options].some((option) => option.value === previous) ? previous : '0.0.0.0';
+    preferredNetworkLocalAddress = sel.value;
   }
 
   function syncModalPortOptions() {
@@ -152,41 +178,67 @@
     autoBaudExhausted = false;
     setOpenState(true);
   }
+  async function openNetwork() {
+    const opts = { localAddress: $('cfg-network-local-address').value, localPort: Number($('cfg-network-local-port').value) };
+    const res = await window.networkAPI.open(opts);
+    if (!res.ok) { alert('打开网络失败: ' + res.error); return; }
+    setOpenState(true);
+  }
+  async function openTransport() {
+    if (transport === 'network') await openNetwork();
+    else await openPort();
+  }
   async function closePort() {
     stopTimedSend(); stopMultiSend();
-    await window.serialAPI.close();
+    if (transport === 'network') await window.networkAPI.close();
+    else await window.serialAPI.close();
     setOpenState(false);
   }
   function setOpenState(open) {
     isOpen = open;
-    $('btn-open').textContent = open ? '关闭串口' : '打开串口';
+    const label = transport === 'network' ? '网络' : '串口';
+    $('btn-open').textContent = open ? `关闭${label}` : `打开${label}`;
     $('btn-open').classList.toggle('danger', open);
     $('btn-open').classList.toggle('primary', !open);
     const cs = $('conn-state');
-    cs.textContent = open ? `已连接 @ ${getBaud()}` : '未连接';
+    cs.textContent = open ? (transport === 'network' ? `UDP ${$('cfg-network-local-address').value}:${$('cfg-network-local-port').value}` : `已连接 @ ${getBaud()}`) : '未连接';
     cs.className = 'badge ' + (open ? 'badge-on' : 'badge-off');
-    ['cfg-port', 'cfg-data', 'cfg-stop', 'cfg-parity', 'cfg-flow'].forEach((i) => ($(i).disabled = open));
-    $('status-port').textContent = open ? `${$('cfg-port').value} 已打开` : '串口未打开';
+    ['cfg-transport', 'cfg-port', 'cfg-data', 'cfg-stop', 'cfg-parity', 'cfg-flow', 'cfg-network-local-address', 'cfg-network-local-port'].forEach((i) => ($(i).disabled = open));
+    $('status-port').textContent = open ? (transport === 'network' ? `UDP ${$('cfg-network-local-address').value}:${$('cfg-network-local-port').value} 已打开` : `${$('cfg-port').value} 已打开`) : `${label}未打开`;
     const dot = document.querySelector('.statusbar i');
     if (dot) dot.classList.toggle('on', open);
-    updateBaudInfo();
+    if (transport === 'serial') updateBaudInfo();
+  }
+
+  function setTransportMode(value) {
+    transport = value === 'network' ? 'network' : 'serial';
+    $('cfg-transport').value = transport;
+    document.querySelectorAll('.serial-only').forEach((el) => { el.style.display = transport === 'serial' ? '' : 'none'; });
+    $('network-settings').style.display = transport === 'network' ? 'inline-flex' : 'none';
+    $('cur-baud-wrap').style.display = transport === 'serial' ? '' : 'none';
+    $('btn-open').textContent = transport === 'network' ? '打开网络' : '打开串口';
+    schedulePersist();
   }
 
   // ── receive packetization ────────────────────────────────────────────────
   // 数据永远立即追加到“当前接收行”并就地显示。分包间隔 = 一行连续累计满 N ms
   // 就另起新行（=0 时每笔单独成行）；空闲后由定时器收尾。镜像 /recv 与自动解析
   // 在“行收尾”时各触发一次。
-  function onSerialData(bytes) {
+  function onSerialData(bytes) { onIncomingData(bytes); }
+  function onNetworkData(payload) { onIncomingData(payload.bytes, { address: payload.remoteAddress, port: payload.remotePort }); }
+  function onIncomingData(bytes, peer = null) {
     if (receivePaused) return;
     stats.rx += bytes.length;
     const arr = Array.from(bytes);
+    Upgrade.onIncoming(arr, peer);
     const gap = parseInt($('rx-gap').value) || 0;
     const now = Date.now();
 
     // 显示绝对优先：收尾上一行时即使镜像/解析抛错，也不能挡住本次数据上屏
-    if (!curRx || gap <= 0 || (now - curRx.start) >= gap) {
+    const peerChanged = Boolean(curRx && JSON.stringify(curRx.peer) !== JSON.stringify(peer));
+    if (!curRx || peerChanged || gap <= 0 || (now - curRx.start) >= gap) {
       try { finalizeRx(); } catch (e) { console.error('finalizeRx', e); }
-      curRx = { pkt: addPacket('rx', arr), start: now };
+      curRx = { pkt: addPacket('rx', arr, undefined, peer), start: now, peer };
     } else {
       curRx.pkt.bytes.push(...arr);                             // 追加到当前行
       updatePacketEl(curRx.pkt);                                // 就地重绘
@@ -208,16 +260,16 @@
     if ($('auto-parse').checked && Protocol.isLoaded()) autoParsePacket(pkt);
 
     // auto-baud: independent of protocol — judge garbled by raw bytes
-    if ($('auto-baud').checked && isOpen && !scanning && !autoBaudExhausted &&
+    if (transport === 'serial' && $('auto-baud').checked && isOpen && !scanning && !autoBaudExhausted &&
         pkt.bytes.length >= 2) {
       if (dataLooksGood(pkt.bytes)) autoBaudExhausted = false;  // good data → keep watching
       else baudScan();
     }
   }
 
-  function addPacket(dir, bytes, fmt) {
+  function addPacket(dir, bytes, fmt, peer = null) {
     if (dir === 'tx') finalizeRx();   // 关掉正在追加的接收行，避免后续 rx 插到该 tx 之前
-    const pkt = { id: ++pktSeq, time: new Date(), dir, bytes, fmt };
+    const pkt = { id: ++pktSeq, time: new Date(), dir, bytes, fmt, peer };
     packets.push(pkt);
     if (dir === 'rx') { stats.pkt++; }
     if (packets.length > 5000) packets.shift();
@@ -233,8 +285,9 @@
     const isHex = mode === 'hex';
     const body = escapeHtml(isHex ? bytesToHex(pkt.bytes) : bytesToStr(pkt.bytes));
     const ts = showTime ? `<span class="ts">[${fmtTime(pkt.time)}]</span> ` : '';
+    const peer = pkt.peer ? `<span class="ts">[${pkt.peer.address}:${pkt.peer.port}]</span> ` : '';
     // 收发都不加方向箭头前缀
-    return ts + body;
+    return ts + peer + body;
   }
 
   function renderPacket(pkt) {
@@ -294,6 +347,7 @@
     document.querySelectorAll('#rx-list .pkt').forEach((el) => {
       el.classList.toggle('sel', selected.has(parseInt(el.dataset.id)));
     });
+    Upgrade.parse(selectedBytes());
   }
   // 选中报文后自动调用协议工具解析（静默：未加载协议/空选择则不打扰）
   function parseSelectionNow() {
@@ -325,13 +379,28 @@
 
   // ── sending ──────────────────────────────────────────────────────────────
   async function writeBytes(bytes, fmt) {
-    if (!isOpen) { alert('请先打开串口'); return false; }
+    if (Upgrade.blocksNormalSend()) { alert('升级进行中，普通发送已锁定'); return false; }
+    if (!isOpen) { alert(`请先打开${transport === 'network' ? '网络' : '串口'}`); return false; }
     if (!bytes.length) return false;
-    const res = await window.serialAPI.write(bytes);
+    const res = transport === 'network'
+      ? await window.networkAPI.write(bytes, { address: $('cfg-network-remote-address').value.trim(), port: Number($('cfg-network-remote-port').value) })
+      : await window.serialAPI.write(bytes);
     if (!res.ok) { alert('发送失败: ' + res.error); return false; }
     stats.tx += bytes.length;
     addPacket('tx', bytes, fmt);   // fmt: 'hex' | 'str' — controls echo display
     return true;
+  }
+
+  async function writeUpgradeBytes(bytes, lockedPeer = null) {
+    if (!isOpen) throw new Error(`请先打开${transport === 'network' ? '网络' : '串口'}`);
+    const target = lockedPeer || { address: $('cfg-network-remote-address').value.trim(), port: Number($('cfg-network-remote-port').value) };
+    const res = transport === 'network'
+      ? await window.networkAPI.write(bytes, { address: target.address, port: Number(target.port) })
+      : await window.serialAPI.write(bytes);
+    if (!res.ok) throw new Error(res.error || '发送失败');
+    stats.tx += bytes.length;
+    addPacket('tx', Array.from(bytes), 'hex', transport === 'network' ? { address: target.address, port: Number(target.port) } : null);
+    return res.n;
   }
   async function doSend() {
     let bytes;
@@ -458,7 +527,7 @@
     await writeBytes(bytes, hex ? 'hex' : 'str');
   }
   async function runMultiSequence() {
-    if (!isOpen) { alert('请先打开串口'); return; }
+    if (!isOpen) { alert(`请先打开${transport === 'network' ? '网络' : '串口'}`); return; }
     stopMultiSend();
     const entries = [...$('multi-rows').children]
       .filter((row) => row.querySelector('.multi-enable').checked && row.querySelector('.multi-command').value.trim())
@@ -614,6 +683,16 @@
         $('multi-view').style.flex = `0 0 ${width}px`;
         $('multi-view').style.width = `${width}px`;
         $('protocol-view').style.flex = '1 1 0';
+      } else if (drag.kind === 'right-upgrade') {
+        const right = $('right').getBoundingClientRect();
+        const width = Math.min(right.width - 180, Math.max(260, right.right - lastX));
+        $('upgrade-view').style.flex = `0 0 ${width}px`;
+        $('upgrade-view').style.width = `${width}px`;
+      } else if (drag.kind === 'upgrade-inner') {
+        const area = document.querySelector('.upgrade-split').getBoundingClientRect();
+        const height = Math.min(area.height - 110, Math.max(120, lastY - area.top));
+        $('up-log-section').style.flex = `0 0 ${height}px`;
+        $('up-parser-section').style.flex = '1 1 0';
       } else if (drag.kind === 'send') {
         const center = $('center').getBoundingClientRect();
         const h = Math.min(center.height - 80, Math.max(70, center.bottom - lastY));
@@ -649,18 +728,24 @@
   function updateRightLayout() {
     const multiOpen = $('multi-view').classList.contains('active');
     const protocolOpen = $('protocol-view').classList.contains('active');
-    const count = Number(multiOpen) + Number(protocolOpen);
+    const upgradeOpen = $('upgrade-view').classList.contains('active');
+    const count = Number(multiOpen) + Number(protocolOpen) + Number(upgradeOpen);
     $('right').classList.toggle('closed', count === 0);
-    $('right').classList.toggle('both-open', count === 2);
-    $('right-inner-split').style.display = count === 2 ? '' : 'none';
+    $('right').classList.toggle('both-open', count >= 2);
+    $('right-inner-split').style.display = multiOpen && protocolOpen ? '' : 'none';
+    $('upgrade-right-split').style.display = upgradeOpen && (multiOpen || protocolOpen) ? '' : 'none';
     document.querySelector('.vsplit[data-resize="right"]').style.display = count === 0 ? 'none' : '';
     $('btn-show-multi').classList.toggle('active', multiOpen);
     $('btn-show-protocol').classList.toggle('active', protocolOpen);
+    $('btn-show-upgrade').classList.toggle('active', upgradeOpen);
     if (count === 2) $('right').style.width = Math.round(window.innerWidth * 0.54) + 'px';
+    else if (count === 3) $('right').style.width = Math.round(window.innerWidth * 0.76) + 'px';
     else {
       $('multi-view').style.removeProperty('flex');
       $('multi-view').style.removeProperty('width');
       $('protocol-view').style.removeProperty('flex');
+      $('upgrade-view').style.removeProperty('flex');
+      $('upgrade-view').style.removeProperty('width');
       if (count === 1 && parseInt($('right').style.width, 10) > 600) $('right').style.width = '455px';
     }
   }
@@ -713,7 +798,12 @@
 
   function collectPersistedSettings() {
     return {
+      transport,
       port: $('cfg-port').value || preferredPortPath,
+      networkLocalAddress: $('cfg-network-local-address').value,
+      networkLocalPort: $('cfg-network-local-port').value,
+      networkRemoteAddress: $('cfg-network-remote-address').value,
+      networkRemotePort: $('cfg-network-remote-port').value,
       baud: getBaud(),
       dataBits: $('cfg-data').value,
       stopBits: $('cfg-stop').value,
@@ -736,21 +826,43 @@
     };
   }
 
-  function savePersistedSettings() {
+  async function savePersistedSettings() {
     clearTimeout(persistTimer);
     persistTimer = null;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(collectPersistedSettings())); } catch (_) { /* ignore storage failures */ }
+    if (!persistenceReady) return;
+    const settings = collectPersistedSettings();
+    try {
+      const saved = await window.settingsAPI.save(settings);
+      if (!saved?.ok) throw new Error(saved?.error || '未知错误');
+    } catch (err) {
+      // Keep a browser-cache fallback only when the user profile cannot be written.
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch (_) { /* ignore storage failures */ }
+      console.error('保存本地配置失败', err);
+    }
   }
 
   function schedulePersist() {
+    if (!persistenceReady) return;
     clearTimeout(persistTimer);
     persistTimer = setTimeout(savePersistedSettings, 150);
   }
 
-  function restorePersistedSettings() {
-    let saved;
-    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch (_) { return false; }
+  async function restorePersistedSettings() {
+    let saved = null;
+    try {
+      const result = await window.settingsAPI.load();
+      if (result?.ok && result.exists) saved = result.data;
+    } catch (err) { console.error('读取本地配置失败', err); }
+    // One-time migration for lists created by older versions.
+    if (!saved) {
+      try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch (_) { return false; }
+    }
     if (!saved || typeof saved !== 'object') return false;
+    if (saved.networkLocalAddress) preferredNetworkLocalAddress = saved.networkLocalAddress;
+    if (saved.networkLocalPort) $('cfg-network-local-port').value = saved.networkLocalPort;
+    if (saved.networkRemoteAddress) $('cfg-network-remote-address').value = saved.networkRemoteAddress;
+    if (saved.networkRemotePort) $('cfg-network-remote-port').value = saved.networkRemotePort;
+    setTransportMode(saved.transport);
     preferredPortPath = String(saved.port || '');
     if (saved.baud) setBaudDisplay(saved.baud);
     if (saved.dataBits) $('cfg-data').value = String(saved.dataBits);
@@ -822,12 +934,16 @@
     $('btn-show-multi').addEventListener('click', () => togglePanel('multi'));
     $('btn-show-protocol').addEventListener('click', () => togglePanel('protocol'));
     $('btn-refresh').addEventListener('click', refreshPorts);
+    $('btn-refresh-network').addEventListener('click', refreshNetworkAddresses);
+    $('cfg-transport').addEventListener('change', (event) => { if (!isOpen) setTransportMode(event.target.value); });
+    $('cfg-network-local-address').addEventListener('change', () => { preferredNetworkLocalAddress = $('cfg-network-local-address').value; schedulePersist(); });
+    ['cfg-network-local-port', 'cfg-network-remote-address', 'cfg-network-remote-port'].forEach((id) => $(id).addEventListener('change', schedulePersist));
     $('cfg-port').addEventListener('change', () => { preferredPortPath = $('cfg-port').value; schedulePersist(); });
-    $('btn-open').addEventListener('click', () => (isOpen ? closePort() : openPort()));
+    $('btn-open').addEventListener('click', () => (isOpen ? closePort() : openTransport()));
     $('cfg-baud').addEventListener('change', () => { onBaudSelChange(); schedulePersist(); });
     $('cfg-baud-custom').addEventListener('change', () => { if (isOpen && !scanning) { window.serialAPI.setBaud(getBaud()); $('conn-state').textContent = `已连接 @ ${getBaud()}`; } schedulePersist(); });
     ['cfg-data', 'cfg-stop', 'cfg-parity', 'cfg-flow', 'rx-gap', 'sig-dtr', 'sig-rts'].forEach((id) => $(id).addEventListener('change', schedulePersist));
-    const applySignals = () => window.serialAPI.setSignals({ dtr: $('sig-dtr').checked, rts: $('sig-rts').checked });
+    const applySignals = () => { if (transport === 'serial' && isOpen) window.serialAPI.setSignals({ dtr: $('sig-dtr').checked, rts: $('sig-rts').checked }); };
     $('sig-dtr').addEventListener('change', applySignals);
     $('sig-rts').addEventListener('change', applySignals);
 
@@ -878,7 +994,10 @@
     });
 
     // protocol
-    $('btn-load-proto').addEventListener('click', loadProtocol);
+    $('btn-load-proto').addEventListener('click', addProtocolToLibrary);
+    $('proto-library-list').addEventListener('change', loadProtocolFromLibrary);
+    $('btn-proto-open-dir').addEventListener('click', openProtocolLibrary);
+    $('btn-proto-refresh').addEventListener('click', () => refreshProtocolLibrary());
     $('btn-parse-sel').addEventListener('click', parseSelected);
     $('btn-clear-result').addEventListener('click', () => Protocol.clearResults());
 
@@ -901,12 +1020,19 @@
     window.serialAPI.onData(onSerialData);
     window.serialAPI.onError((msg) => { $('baud-status').textContent = '串口错误: ' + msg; });
     window.serialAPI.onClosed(() => setOpenState(false));
+    window.networkAPI.onData(onNetworkData);
+    window.networkAPI.onError((msg) => { $('baud-status').textContent = '网络错误: ' + msg; });
+    window.networkAPI.onClosed(() => setOpenState(false));
 
     updateBaudInfo();
 
     initSplitters();
-    addMultiRow('', '未命名指令');
-    window.addEventListener('beforeunload', savePersistedSettings);
+    // Closing an Electron window destroys the renderer quickly.  Use the
+    // synchronous IPC variant here so a just-added command cannot be lost.
+    window.addEventListener('beforeunload', () => {
+      if (!persistenceReady) return;
+      try { window.settingsAPI.saveSync(collectPersistedSettings()); } catch (err) { console.error('退出前保存本地配置失败', err); }
+    });
   }
 
   // ── protocol-tool generator: open its 报文生成 UI, import the built frame ────
@@ -939,11 +1065,24 @@
     if (alsoSend) doSend();
   }
 
-  async function loadProtocol() {
-    const res = await window.dialogAPI.openProtocol();
-    if (!res.ok) return;
+  async function refreshProtocolLibrary(selectPath = protocolLibraryPath) {
     try {
-      const info = await Protocol.load(res.path);
+      const [res, info] = await Promise.all([window.libraryAPI.list('parsers'), window.libraryAPI.info()]);
+      const select = $('proto-library-list');
+      select.innerHTML = '';
+      if (!res.ok || !res.items.length) select.add(new Option('资料库中没有协议解析工具', ''));
+      else for (const item of res.items) select.add(new Option(item.name, item.path));
+      if (selectPath && [...select.options].some((item) => item.value === selectPath)) select.value = selectPath;
+      if (info.ok) $('proto-library-path').textContent = info.fallback ? `资料库：${info.root}（安装目录不可写，已回退）` : `资料库：${info.root}`;
+    } catch (err) { $('proto-library-path').textContent = `资料库读取失败：${err.message || err}`; }
+  }
+
+  async function loadProtocolFromLibrary() {
+    const filePath = $('proto-library-list').value;
+    if (!filePath) return;
+    try {
+      const info = await Protocol.loadFromLibrary(filePath);
+      protocolLibraryPath = filePath;
       const b = $('proto-name');
       b.textContent = '协议: ' + info.name;
       b.className = 'badge badge-on';
@@ -954,6 +1093,25 @@
       $('proto-name').textContent = '加载失败';
       $('proto-name').className = 'badge badge-off';
     }
+  }
+
+  async function addProtocolToLibrary() {
+    try {
+      const res = await window.libraryAPI.import('parsers');
+      if (!res?.ok) {
+        if (res?.error) alert(`协议解析工具添加失败：${res.error}`);
+        return;
+      }
+      await refreshProtocolLibrary(res.path);
+      await loadProtocolFromLibrary();
+    } catch (err) { alert(`协议解析工具添加失败：${err.message || err}`); }
+  }
+
+  async function openProtocolLibrary() {
+    try {
+      const res = await window.libraryAPI.open('parsers');
+      if (!res?.ok) alert(`打开资料库失败：${res?.error || '未知错误'}`);
+    } catch (err) { alert(`打开资料库失败：${err.message || err}`); }
   }
 
   async function saveLog() {
@@ -976,7 +1134,27 @@
 
   // ── go ───────────────────────────────────────────────────────────────────
   bind();
-  restorePersistedSettings();
-  refreshPorts();
-  updateStats();
+  Upgrade.init({
+    isOpen: () => isOpen,
+    getTransport: () => transport,
+    networkTarget: () => ({ address: $('cfg-network-remote-address').value.trim(), port: Number($('cfg-network-remote-port').value) }),
+    send: writeUpgradeBytes,
+    setUpgradeLock: (locked) => {
+      if (locked) { stopTimedSend(); stopMultiSend(); }
+      ['btn-send', 'btn-sendfile', 'btn-multi-start', 'btn-add-multi', 'btn-multi-import', 'btn-multi-export', 'btn-gen-cmd', 'auto-baud', 'send-timed'].forEach((id) => { $(id).disabled = locked; });
+    },
+    setPanelOpen
+  });
+  (async () => {
+    const restored = await restorePersistedSettings();
+    if (!restored) addMultiRow('', '未命名指令');
+    persistenceReady = true;
+    // Write one canonical file after restore/migration.  The default row is not
+    // allowed to overwrite the list before the restore result is known.
+    await savePersistedSettings();
+    refreshPorts();
+    refreshNetworkAddresses();
+    refreshProtocolLibrary();
+    updateStats();
+  })();
 })();

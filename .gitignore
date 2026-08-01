@@ -11,3 +11,7 @@ Thumbs.db
 .claude/
 .codex/
 .agents/
+
+# Local imported protocol material must never enter the public repository.
+protocol-tools/
+upgrade-packages/

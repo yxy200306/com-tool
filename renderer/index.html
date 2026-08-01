@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>COM-Tool V2.0 串口调试助手</title>
+  <title>COM-Tool V2.1 串口调试助手</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,6 +13,7 @@
     <button id="btn-serial-settings" class="menu">串口设置</button>
     <button id="btn-show-multi" class="menu menu-blue active">多字符串</button>
     <button id="btn-show-protocol" class="menu menu-orange">协议解析</button>
+    <button id="btn-show-upgrade" class="menu menu-green">升级</button>
     <div class="connection-summary"><i></i><span id="conn-state" class="badge badge-off">未连接</span></div>
   </nav>
 
@@ -51,7 +52,10 @@
       <section id="protocol-view" class="right-view">
         <div class="pane-title"><span>协议解析</span><span id="proto-name" class="badge badge-off">未加载协议</span></div>
         <div class="proto-bar">
-          <button id="btn-load-proto" class="mini">加载协议工具…</button>
+          <select id="proto-library-list" title="从本地资料库选择协议解析工具"></select>
+          <button id="btn-load-proto" class="mini">从电脑添加</button>
+          <button id="btn-proto-open-dir" class="mini">打开资料库</button>
+          <button id="btn-proto-refresh" class="mini">刷新</button>
           <button id="btn-parse-sel" class="primary">解析选中</button>
           <button id="btn-gen-cmd" class="mini">生成指令</button>
           <label class="ck"><input type="checkbox" id="auto-parse"> 自动解析</label>
@@ -63,6 +67,7 @@
         <div class="proto-bar baud-cfg" id="baud-cfg-row" style="display:none">
           <label>候选波特率</label><input id="baud-candidates" type="text" value="9600,115200,256000,57600,38400,19200,14400,4800,2400,1200,230400,460800,921600">
         </div>
+        <div id="proto-library-path" class="proto-library-path"></div>
         <div id="baud-status" class="baud-status"></div>
         <iframe id="result-frame" sandbox="allow-same-origin"></iframe>
         <iframe id="parser-frame" style="display:none"></iframe>
@@ -72,12 +77,14 @@
 
   <section id="bottom-control">
     <div class="serial-strip">
-      <b>端口</b><select id="cfg-port"></select><button id="btn-refresh" class="refresh" title="刷新串口列表">↻</button>
-      <b>波特率</b><select id="cfg-baud">
+      <b>通信方式</b><select id="cfg-transport"><option value="serial" selected>串口</option><option value="network">UDP 网络</option></select>
+      <span class="serial-only"><b>端口</b><select id="cfg-port"></select><button id="btn-refresh" class="refresh" title="刷新串口列表">↻</button></span>
+      <span class="serial-only"><b>波特率</b><select id="cfg-baud">
         <option>600</option><option>1200</option><option>2400</option><option>4800</option><option>9600</option><option>14400</option><option>19200</option><option>38400</option><option>43000</option><option>56000</option><option>57600</option><option>115200</option><option>128000</option><option>230400</option><option selected>256000</option><option>460800</option><option>500000</option><option>512000</option><option>600000</option><option>750000</option><option>921600</option><option>1000000</option><option>1500000</option><option>2000000</option><option>3000000</option><option value="custom">自定义…</option>
-      </select><input id="cfg-baud-custom" type="number" placeholder="波特率" style="display:none">
+      </select><input id="cfg-baud-custom" type="number" placeholder="波特率" style="display:none"></span>
+      <span id="network-settings" style="display:none"><b>本地主机地址</b><select id="cfg-network-local-address"></select><button id="btn-refresh-network" class="refresh" title="刷新本机地址">↻</button><b>本地端口</b><input id="cfg-network-local-port" type="number" value="9300" min="1" max="65535"><b>远端地址</b><input id="cfg-network-remote-address" type="text" value="127.0.0.1" inputmode="decimal"><b>远端端口</b><input id="cfg-network-remote-port" type="number" value="9300" min="1" max="65535"></span>
       <button id="btn-open" class="primary">打开串口</button>
-      <span id="serial-summary">数据位 8　停止位 1　校验 None</span>
+      <span id="serial-summary" class="serial-only">数据位 8　停止位 1　校验 None</span>
       <label class="ck"><input id="rx-time" type="checkbox" checked> 时间戳</label>
       <label class="ck"><input id="rx-showtx" type="checkbox" checked> 显示发送</label>
       <label class="ck"><input id="rx-mode-check" type="checkbox" checked> HEX显示</label>
@@ -111,7 +118,7 @@
     <span><i></i><span id="status-port">串口未打开</span></span>
     <span>协议：<b id="status-proto">未加载</b></span>
     <span>自动解析：<b id="status-auto">关闭</b></span>
-    <span class="cur-baud-wrap">当前波特率：<b id="cur-baud">256000</b></span>
+    <span id="cur-baud-wrap" class="cur-baud-wrap">当前波特率：<b id="cur-baud">256000</b></span>
   </footer>
 
   <aside id="left" class="settings-modal" style="display:none">
@@ -141,10 +148,39 @@
     </div>
   </div>
 
+  <div id="upgrade-right-split" class="vsplit upgrade-right-split" data-resize="right-upgrade" title="拖动调整升级窗口宽度"></div>
+  <div id="upgrade-view" class="right-view upgrade-view">
+    <div class="upgrade-dialog">
+      <div class="upgrade-head"><span>固件升级</span><span id="up-state" class="badge badge-off">未开始</span><button id="btn-up-close" title="关闭右侧升级面板">×</button></div>
+      <div class="upgrade-body">
+        <details id="up-config" class="upgrade-config" open><summary>升级配置（开始后可收起，需要修改时再展开）</summary>
+        <div class="upgrade-libraries">
+          <div><b>协议解析工具</b><select id="up-parser-list"></select><button id="btn-up-import-parser" class="mini">从电脑添加</button><button id="btn-up-open-parser-dir" class="mini">打开资料库</button></div>
+          <div><b>升级协议包</b><select id="up-package-list"></select><button id="btn-up-import-package" class="mini">从电脑添加</button><button id="btn-up-open-package-dir" class="mini">打开资料库</button></div>
+          <div id="up-library-path" class="upgrade-path"></div><button id="btn-up-refresh" class="mini">刷新列表</button>
+        </div>
+        <div class="upgrade-grid">
+          <label>当前解析工具</label><output id="up-parser-name">未加载</output>
+          <label>当前升级包</label><output id="up-package-name">未加载</output>
+          <label>升级文件</label><div><button id="btn-up-firmware" class="mini">导入升级文件…</button><output id="up-file-info">未导入升级文件</output></div>
+          <label>升级版本</label><output id="up-firmware-version">-</output>
+          <label>每包有效数据</label><select id="up-chunk-size"><option value="128">128 字节</option><option value="256" selected>256 字节</option><option value="512">512 字节</option><option value="1024">1024 字节</option></select>
+          <label>文件校验值</label><output id="up-checksum">-</output>
+          <label>本次总包数</label><output id="up-total-packets">-</output>
+          <label>UDP 首包处理</label><div><label class="ck"><input id="up-network-answer-enabled" type="checkbox" checked> 收到首包后自动应答，静默 5 秒再启动</label></div>
+          <label>UDP 应答 HEX</label><input id="up-answer" type="text" placeholder="启用首包应答时原样发送，例如 00">
+        </div></details>
+        <div class="upgrade-actions"><button id="btn-up-start" class="primary">开始升级</button><button id="btn-up-reset">复位升级</button><button id="btn-up-stop" class="danger">停止升级</button><span>进度</span><progress id="up-progress" max="100" value="0"></progress><b id="up-progress-text">0% (0/0 包)</b></div>
+        <div class="upgrade-split"><section id="up-log-section"><h3>升级状态</h3><div id="up-log" class="up-log"></div></section><div class="hsplit" data-resize="upgrade-inner" title="拖动调整状态与报文解析区域高度"></div><section id="up-parser-section"><h3>单击主窗口报文解析</h3><iframe id="up-result-frame" sandbox="allow-same-origin"></iframe><iframe id="up-parser-frame" style="display:none"></iframe></section></div>
+      </div>
+    </div>
+  </div>
+
   <button id="btn-reset-stat" class="visually-hidden">统计清零</button>
   <div class="api-info visually-hidden"></div>
 </div>
 <script src="protocol.js"></script>
+<script src="upgrade.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -68,14 +68,13 @@ const Protocol = (() => {
     return a;
   }
 
-  async function load(filePath) {
-    const res = await window.dialogAPI.readProtocol(filePath);
-    if (!res.ok) throw new Error(res.error || '读取协议工具失败');
-    toolStyles = extractStyles(res.text);
-    toolText = res.text;
+  async function loadText(text, filePath) {
+    if (!text) throw new Error('协议工具文件为空或读取失败');
+    toolStyles = extractStyles(text);
+    toolText = text;
 
     const done = waitForFrame(parserFrame);
-    parserFrame.srcdoc = res.text;
+    parserFrame.srcdoc = text;
     await done;
 
     const win = parserFrame.contentWindow;
@@ -87,6 +86,18 @@ const Protocol = (() => {
     }
     loaded = true;
     return { name: filePath.split(/[\\/]/).pop() };
+  }
+
+  async function load(filePath) {
+    const res = await window.dialogAPI.readProtocol(filePath);
+    if (!res.ok) throw new Error(res.error || '读取协议工具失败');
+    return loadText(res.text, filePath);
+  }
+
+  async function loadFromLibrary(filePath) {
+    const res = await window.libraryAPI.read(filePath, 'parsers');
+    if (!res.ok) throw new Error(res.error || '读取资料库协议工具失败');
+    return loadText(res.text, filePath);
   }
 
   // Run one parse. Returns { ok, html, text, valid, reason }.
@@ -237,7 +248,7 @@ const Protocol = (() => {
   }
 
   return {
-    init, load, parseHex, showResult, clearResults, isLoaded: () => loaded,
+    init, load, loadFromLibrary, parseHex, showResult, clearResults, isLoaded: () => loaded,
     openGeneratorInto, readGenerated, readGeneratedName
   };
 })();

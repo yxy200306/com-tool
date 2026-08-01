@@ -1,8 +1,8 @@
-# COM-Tool V2.0 串口调试助手
+# COM-Tool V2.1 串口调试助手
 
-一个类 SSCOM 的串口接收/发送工具，额外支持**多窗口独立串口**、**可插拔的 HTML 协议解析工具**、**自动解析**和**波特率自适应**。
+一个类 SSCOM 的桌面收发工具，支持**串口与 UDP 网络模式切换**、多窗口、可插拔的 HTML 解析工具、自动解析和串口波特率自适应。
 
-V2.0 可通过顶部“新建窗口”或再次启动 V2 portable 创建多个窗口。每个窗口拥有独立的串口对象、波特率、收发缓存、多字符串列表和协议解析状态，可同时操作不同 COM 口。V1.0 与 V2.0 使用不同的用户数据目录，可以并存运行。
+可通过顶部“新建窗口”或再次启动应用创建多个窗口。每个窗口拥有独立的串口对象、波特率、收发缓存、多字符串列表和协议解析状态，可同时操作不同 COM 口。
 
 ## 运行 / 打包
 
@@ -13,8 +13,7 @@ npm run dist           # 打包：release/ 下生成 单文件 exe + 安装包�
 ```
 
 打包产物（`release/`）：
-- **`COM-Tool-V2-portable.exe`** — V2 免安装单文件，后续构建持续覆盖更新
-- **`V1.0/COM-Tool-1.0.0-portable.exe`** — 保留的 V1.0 免安装版
+- **`COM-Tool-V2.1-portable.exe`** — V2.1 免安装单文件，后续构建持续覆盖更新
 
 > 说明：`npm run dist` 已通过 `predist` 钩子自动跑 `scripts/prepare-build-cache.js`，
 > 解决 electron-builder 在 Windows 普通用户下 winCodeSign 解压"客户端没有所需的特权"
@@ -28,6 +27,8 @@ npm run dist           # 打包：release/ 下生成 单文件 exe + 安装包�
 
 ## 基础功能（对标 SSCOM）
 
+- 通信方式：串口 / UDP 网络一键切换；每个窗口独立连接
+- UDP 网络：自动枚举本机 IPv4 地址并选择绑定地址，输入本地端口、远端地址和远端端口后收发数据
 - 串口号/波特率/数据位/停止位/校验位/流控 设置，打开/关闭串口
 - DTR / RTS 信号控制
 - 接收区：HEX / ASCII 显示、时间戳、自动滚屏、**按间隔分包**（默认 30ms）
@@ -79,3 +80,23 @@ release/       打包产物（exe）
 ```
 
 > 二次开发请先读 **`开发指南.md`**（代码框架、数据流、IPC 清单、扩展点）。
+
+## Local upgrade
+
+Use the **Upgrade** window to import a local HTML parser and a trusted local upgrade package. Portable builds keep `protocol-tools/` and `upgrade-packages/` next to the EXE when writable; otherwise the window shows its user-data fallback location. These folders, firmware images, protocol documents, captures, parsers, and upgrade packages are never part of this public repository.
+
+Choose a firmware image and a packet size (128, 256, 512, or 1024 bytes). The window calculates and displays file size, package count, and the checksum selected by the package. Serial upgrading starts immediately. UDP always waits for the first received packet and locks its source address and port: when first-packet reply is enabled, the configured HEX reply is sent and upgrading starts after five seconds of silence; when disabled, upgrading starts immediately after that first packet.
+
+While the Upgrade window is open and its parser is loaded, click any RX or TX row in the main window to parse that full frame in the Upgrade window. Reset clears this tool's resume state; it never forces a device fragment number.
+
+### AI package prompt
+
+```text
+Generate two local COM-Tool files without company names, real protocol examples, captures, or firmware.
+1) One self-contained HTML parser with a HEX input, parse trigger, and result area. Prefer #parse-input, #parse-result, and parseFrame().
+2) One trusted local .js upgrade package exporting:
+module.exports = { manifest: { id, name, checksum, chunkSizes }, create(context) { return { start(context), onReceive(bytes, context) }; } }
+The package may call context.getChunk(), context.send(), context.progress(), context.saveResume(), context.loadResume(), and context.complete().
+
+I will supply the upgrade specification, complete RX/TX captures, framing and checksum rules, permitted packet sizes, retries, resume behavior, and success/failure conditions. Output only the two importable files.
+```
