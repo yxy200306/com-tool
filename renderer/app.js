@@ -426,6 +426,19 @@
     $('send-timed').checked = false;
   }
 
+  // ── quick send buttons (AT校时 / 调制 / 非调制) ──────────────────────────
+  const pad2 = (n) => String(n).padStart(2, '0');
+  async function sendAtTime() {
+    const d = new Date();
+    const text = `AT+TIME=${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+    await writeBytes(Array.from(new TextEncoder().encode(text + '\r\n')), 'str');
+  }
+  async function sendQuickHex(hexText) {
+    const bytes = parseHexInput(hexText);
+    if (!bytes.length) { alert('HEX 内容无效'); return; }
+    await writeBytes(bytes, 'hex');
+  }
+
   // ── multi send ───────────────────────────────────────────────────────────
   function autoCommandName(command, index) {
     return `指令 ${index}`;
@@ -980,6 +993,9 @@
     }));
 
     $('btn-send').addEventListener('click', doSend);
+    $('btn-at-time').addEventListener('click', sendAtTime);
+    $('btn-mod-on').addEventListener('click', () => sendQuickHex('AA A5 56 01'));
+    $('btn-mod-off').addEventListener('click', () => sendQuickHex('AA A5 56 02'));
     $('btn-clear-send').addEventListener('click', () => { $('send-text').value = ''; });
     $('send-timed').addEventListener('change', (e) => (e.target.checked ? startTimedSend() : stopTimedSend()));
     $('btn-sendfile').addEventListener('click', sendFile);
@@ -1141,7 +1157,7 @@
     send: writeUpgradeBytes,
     setUpgradeLock: (locked) => {
       if (locked) { stopTimedSend(); stopMultiSend(); }
-      ['btn-send', 'btn-sendfile', 'btn-multi-start', 'btn-add-multi', 'btn-multi-import', 'btn-multi-export', 'btn-gen-cmd', 'auto-baud', 'send-timed'].forEach((id) => { $(id).disabled = locked; });
+      ['btn-send', 'btn-sendfile', 'btn-at-time', 'btn-mod-on', 'btn-mod-off', 'btn-multi-start', 'btn-add-multi', 'btn-multi-import', 'btn-multi-export', 'btn-gen-cmd', 'auto-baud', 'send-timed'].forEach((id) => { $(id).disabled = locked; });
     },
     setPanelOpen
   });
