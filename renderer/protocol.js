@@ -221,6 +221,9 @@ const Protocol = (() => {
 
   // Read a human-friendly command name from the generator UI. Prefer the
   // selected command name because it describes the generated instruction.
+  // Per ID row the entered value is appended so commands stay distinguishable:
+  // enum values resolve to their label (开猫（上报）=业务数据), plain values keep
+  // their unit (上报频率间隔=30min).
   function readGeneratedName(frame) {
     try {
       const doc = frame.contentDocument;
@@ -230,12 +233,39 @@ const Protocol = (() => {
         if (value) return value;
       }
 
-      const idNames = Array.from(doc.querySelectorAll('.b-id-sel'))
-        .map((select) => select.selectedOptions && select.selectedOptions[0])
-        .filter(Boolean)
-        .map((option) => String(option.textContent || '').replace(/^\s*\d+\s*[–—-]\s*/, '').trim())
-        .filter(Boolean);
-      if (idNames.length) return idNames.join('、').slice(0, 60);
+      const describeRow = (select) => {
+        const option = select.selectedOptions && select.selectedOptions[0];
+        const base = option ? String(option.textContent || '').replace(/^\s*\d+\s*[–—-]\s*/, '').trim() : '';
+        if (!base) return '';
+        const row = select.closest('.id-row') || select.parentElement;
+        if (!row) return base;
+        const input = row.querySelector('.b-val');
+        const raw = input ? String(input.value || '').trim() : '';
+        if (!raw) return base;
+        const hint = String((row.querySelector('span')?.textContent) || '');
+        const enumMap = {};
+        const enumMatch = hint.match(/\(([^)]*)\)/);
+        if (enumMatch) {
+          enumMatch[1].split(',').forEach((pair) => {
+            const eq = pair.indexOf('=');
+            if (eq > 0) enumMap[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
+          });
+        }
+        let shown = null;
+        if (enumMap[raw] !== undefined) shown = enumMap[raw];
+        else {
+          const dec = String(parseInt(raw, 10));
+          if (enumMap[dec] !== undefined) shown = enumMap[dec];
+        }
+        if (shown === null) {
+          const unitMatch = hint.match(/^\s*\[[^\]]*\]\s*([^\s(]+)/);
+          shown = raw + (unitMatch ? unitMatch[1] : '');
+        }
+        return `${base}=${shown}`;
+      };
+
+      const idNames = Array.from(doc.querySelectorAll('.b-id-sel')).map(describeRow).filter(Boolean);
+      if (idNames.length) return idNames.join('、').slice(0, 80);
 
       const genericId = doc.querySelector('select[id*="id" i]');
       if (genericId && genericId.selectedOptions && genericId.selectedOptions[0]) {

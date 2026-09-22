@@ -450,6 +450,14 @@
     });
   }
 
+  function refreshMultiCmdButton(row) {
+    const btn = row.querySelector('.multi-cmd');
+    const has = Boolean(row.querySelector('.multi-command').value.trim());
+    btn.textContent = has ? '指令' : '＋ 指令';
+    btn.title = has ? '点击查看/编辑本条指令' : '点击填写指令内容';
+    btn.classList.toggle('unset', !has);
+  }
+
   function addMultiRow(value = '', name = '') {
     const rows = $('multi-rows');
     const index = rows.children.length + 1;
@@ -461,7 +469,13 @@
 
     const command = document.createElement('input');
     command.type = 'text'; command.className = 'multi-command'; command.value = value;
-    command.placeholder = `第 ${index} 条指令`;
+    command.placeholder = `第 ${index} 条指令`; command.style.display = 'none';
+
+    const order = document.createElement('input');
+    order.type = 'number'; order.min = '1'; order.value = index; order.className = 'multi-order'; order.style.display = 'none';
+
+    const wait = document.createElement('input');
+    wait.type = 'number'; wait.min = '10'; wait.value = $('multi-interval').value || '1000'; wait.className = 'multi-delay'; wait.style.display = 'none';
 
     const nameButton = document.createElement('button');
     nameButton.type = 'button'; nameButton.className = 'multi-name';
@@ -500,7 +514,8 @@
       if (editingName) return;
       clickTimer = setTimeout(() => {
         clickTimer = null;
-        sendOneRaw(command.value, $('multi-hex').checked);
+        if (!command.value.trim()) openMultiCmdDialog(row);
+        else sendOneRaw(command.value, $('multi-hex').checked);
       }, 240);
     });
     nameButton.addEventListener('keydown', (event) => {
@@ -516,23 +531,26 @@
     });
     nameButton.addEventListener('blur', () => finishNameEdit(false));
 
-    const order = document.createElement('input');
-    order.type = 'number'; order.min = '1'; order.value = index; order.className = 'multi-order';
-
-    const wait = document.createElement('input');
-    wait.type = 'number'; wait.min = '10'; wait.value = $('multi-interval').value || '1000'; wait.className = 'multi-delay';
+    const cmdButton = document.createElement('button');
+    cmdButton.type = 'button'; cmdButton.className = 'multi-cmd';
+    cmdButton.addEventListener('click', () => openMultiCmdDialog(row));
 
     const remove = document.createElement('button');
-    remove.type = 'button'; remove.className = 'multi-send'; remove.textContent = '×'; remove.title = '删除';
+    remove.type = 'button'; remove.className = 'multi-del'; remove.textContent = '×'; remove.title = '删除本条';
     remove.addEventListener('click', () => { row.remove(); renumberMultiRows(); schedulePersist(); });
+
+    const cmdCell = document.createElement('div');
+    cmdCell.className = 'multi-cmd-cell';
+    cmdCell.append(cmdButton, remove);
 
     [enabled, command, order, wait].forEach((control) => {
       control.addEventListener('input', schedulePersist);
       control.addEventListener('change', schedulePersist);
     });
 
-    row.append(enabled, command, nameButton, order, wait, remove);
+    row.append(enabled, nameButton, cmdCell, command, order, wait);
     rows.appendChild(row);
+    refreshMultiCmdButton(row);
     schedulePersist();
   }
   async function sendOneRaw(text, hex) {
@@ -565,6 +583,42 @@
   function stopMultiSend() {
     if (multiTimer) { multiTimer.stop(); multiTimer = null; }
     $('multi-loop').checked = false;
+  }
+
+  // ── multi command editor dialog ──────────────────────────────────────────
+  let cmdDialogRow = null;
+  function openMultiCmdDialog(row) {
+    cmdDialogRow = row;
+    $('multi-cmd-name').value = row.querySelector('.multi-name').textContent.trim();
+    $('multi-cmd-text').value = row.querySelector('.multi-command').value;
+    $('multi-cmd-hint').textContent = $('multi-hex').checked
+      ? '保存后将按 HEX 字节解析发送，示例：A9 9A 01 00 02'
+      : '保存后将按文本（ASCII）原样发送';
+    $('multi-cmd-modal').style.display = 'flex';
+    $('multi-cmd-text').focus();
+  }
+  function closeMultiCmdDialog() {
+    $('multi-cmd-modal').style.display = 'none';
+    cmdDialogRow = null;
+  }
+  function saveMultiCmdDialog() {
+    if (cmdDialogRow) {
+      const name = $('multi-cmd-name').value.trim();
+      const text = $('multi-cmd-text').value;
+      cmdDialogRow.querySelector('.multi-command').value = text;
+      if (name) cmdDialogRow.querySelector('.multi-name').textContent = name;
+      refreshMultiCmdButton(cmdDialogRow);
+      schedulePersist();
+    }
+    closeMultiCmdDialog();
+  }
+  function deleteMultiCmdRow() {
+    if (cmdDialogRow) {
+      cmdDialogRow.remove();
+      renumberMultiRows();
+      schedulePersist();
+    }
+    closeMultiCmdDialog();
   }
 
   // ── protocol parse ───────────────────────────────────────────────────────
@@ -689,18 +743,20 @@
       if (drag.kind === 'left') {
         $('left').style.width = Math.min(480, Math.max(150, lastX)) + 'px';
       } else if (drag.kind === 'right') {
-        $('right').style.width = (window.innerWidth - lastX) + 'px';
+        const pct = Math.max(10, Math.min(85, (window.innerWidth - lastX) / window.innerWidth * 100));
+        $('right').style.width = pct + '%';
       } else if (drag.kind === 'right-inner') {
         const right = $('right').getBoundingClientRect();
-        const width = lastX - right.left;
-        $('multi-view').style.flex = `0 0 ${width}px`;
-        $('multi-view').style.width = `${width}px`;
+        const width = Math.min(right.width - 180, Math.max(220, right.right - lastX));
+        const pct = Math.max(15, Math.min(70, width / right.width * 100));
+        $('multi-view').style.flex = `0 0 ${pct}%`;
+        $('multi-view').style.width = `${pct}%`;
         $('protocol-view').style.flex = '1 1 0';
       } else if (drag.kind === 'right-upgrade') {
         const right = $('right').getBoundingClientRect();
         const width = Math.min(right.width - 180, Math.max(260, right.right - lastX));
         $('upgrade-view').style.flex = `0 0 ${width}px`;
-        $('upgrade-view').style.width = `${width}px`;
+        $('upgrade-view').style.width = Math.max(15, Math.min(70, width / window.innerWidth * 100)) + '%';
       } else if (drag.kind === 'upgrade-inner') {
         const area = document.querySelector('.upgrade-split').getBoundingClientRect();
         const height = Math.min(area.height - 110, Math.max(120, lastY - area.top));
@@ -715,6 +771,7 @@
 
     document.querySelectorAll('.vsplit, .hsplit').forEach((sp) => {
       sp.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;   // left button only: right/middle must not start a drag
         drag = { kind: sp.dataset.resize };
         overlay.style.cursor = sp.classList.contains('hsplit') ? 'row-resize' : 'col-resize';
         overlay.style.display = 'block';
@@ -722,12 +779,16 @@
       });
     });
     function onMove(e) {
+      // Self-heal: if the buttons were released without us seeing mouseup
+      // (alt-tab mid-drag, released outside the window, swallowed event),
+      // the invisible overlay would block every click forever — end the drag.
+      if (drag && !e.buttons) { onUp(); return; }
       if (!drag) return;
       lastX = e.clientX; lastY = e.clientY;
       if (!raf) raf = requestAnimationFrame(apply);   // throttle to one resize / frame
     }
     function onUp() {
-      if (!drag) return;
+      if (!drag) { overlay.style.display = 'none'; return; }
       drag = null;
       overlay.style.display = 'none';
       if (raf) { cancelAnimationFrame(raf); raf = null; }
@@ -736,6 +797,9 @@
     window.addEventListener('mousemove', onMove);
     overlay.addEventListener('mouseup', onUp);
     window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointerup', onUp);      // some paths swallow mouseup
+    window.addEventListener('blur', onUp);           // alt-tab / focus loss mid-drag
+    window.addEventListener('contextmenu', onUp);
   }
 
   function updateRightLayout() {
@@ -751,15 +815,22 @@
     $('btn-show-multi').classList.toggle('active', multiOpen);
     $('btn-show-protocol').classList.toggle('active', protocolOpen);
     $('btn-show-upgrade').classList.toggle('active', upgradeOpen);
-    if (count === 2) $('right').style.width = Math.round(window.innerWidth * 0.54) + 'px';
-    else if (count === 3) $('right').style.width = Math.round(window.innerWidth * 0.76) + 'px';
+    if (count === 2) $('right').style.width = '62%';
+    else if (count === 3) $('right').style.width = '76%';
     else {
       $('multi-view').style.removeProperty('flex');
       $('multi-view').style.removeProperty('width');
       $('protocol-view').style.removeProperty('flex');
       $('upgrade-view').style.removeProperty('flex');
       $('upgrade-view').style.removeProperty('width');
-      if (count === 1 && parseInt($('right').style.width, 10) > 600) $('right').style.width = '455px';
+      // keep a user-dragged ratio, but replace leftovers from wider layouts
+      // (54–76% from multi-view states) and fill empty inline styles with the
+      // per-view default: protocol parses need ~49% (its share of the 62%
+      // two-panel layout), the sparser panels sit at 30%.
+      if (count === 1) {
+        const cur = parseFloat($('right').style.width) || 0;
+        if (cur === 0 || cur > 45) $('right').style.width = protocolOpen ? '49%' : '30%';
+      }
     }
   }
 
@@ -1003,6 +1074,11 @@
     $('btn-multi-start').addEventListener('click', runMultiSequence);
     $('btn-multi-import').addEventListener('click', importMultiRows);
     $('btn-multi-export').addEventListener('click', exportMultiRows);
+    $('btn-multi-cmd-save').addEventListener('click', saveMultiCmdDialog);
+    $('btn-multi-cmd-cancel').addEventListener('click', closeMultiCmdDialog);
+    $('btn-multi-cmd-close').addEventListener('click', closeMultiCmdDialog);
+    $('btn-multi-cmd-delete').addEventListener('click', deleteMultiCmdRow);
+    $('multi-cmd-modal').addEventListener('click', (event) => { if (event.target === $('multi-cmd-modal')) closeMultiCmdDialog(); });
     $('multi-loop').addEventListener('change', (e) => { if (!e.target.checked) stopMultiSend(); schedulePersist(); });
     ['multi-hex', 'multi-interval'].forEach((id) => {
       $(id).addEventListener('input', schedulePersist);

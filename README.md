@@ -6,6 +6,10 @@
 
 ## 运行 / 打包
 
+## 下载安装包
+
+最新版及全部历史版本的免安装 exe 都在 [GitHub Releases](https://github.com/yxy200306/com-tool/releases) 页面，下载 `COM-Tool-V*.0-portable.exe` 双击即用。每次发版版本号递增（package.json 的 `version` 与 portable `artifactName` 同步更新），老版本永不删除。
+
 ```powershell
 npm install            # 已配置 .npmrc 走国内镜像
 npm start              # 开发运行

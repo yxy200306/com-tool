@@ -11,8 +11,8 @@
   <nav class="menubar">
     <button id="btn-new-window" class="menu">＋ 新建窗口</button>
     <button id="btn-serial-settings" class="menu">串口设置</button>
-    <button id="btn-show-multi" class="menu menu-blue active">多字符串</button>
-    <button id="btn-show-protocol" class="menu menu-orange">协议解析</button>
+    <button id="btn-show-protocol" class="menu menu-orange active">协议解析</button>
+    <button id="btn-show-multi" class="menu menu-blue">多字符串</button>
     <button id="btn-show-upgrade" class="menu menu-green">升级</button>
     <div class="connection-summary"><i></i><span id="conn-state" class="badge badge-off">未连接</span></div>
   </nav>
@@ -29,27 +29,7 @@
     <div class="vsplit" data-resize="right" title="拖动调整右侧面板宽度"></div>
 
     <aside id="right">
-      <section id="multi-view" class="right-view active">
-        <div class="pane-title"><span>多字符串发送</span><small>名称点击发送，名称和指令均可双击编辑</small></div>
-        <div class="dock-toolbar">
-          <label class="ck"><input type="checkbox" id="multi-loop"> 循环发送</label>
-          <label class="ck"><input type="checkbox" id="multi-hex" checked> HEX</label>
-          <button id="btn-multi-import" class="mini">导入 INI</button>
-          <button id="btn-multi-export" class="mini">导出 INI</button>
-          <button id="btn-add-multi" class="mini">＋ 添加</button>
-        </div>
-        <div class="multi-head"><span>启用</span><span>字符串 / 指令</span><span>名称（点击发送）</span><span>顺序</span><span>延时</span><span></span></div>
-        <div id="multi-rows"></div>
-        <div class="multi-footer">
-          <span>默认延时</span><input id="multi-interval" type="number" value="1000" min="10"><span>ms</span>
-          <span class="auto-name-note">导入时按指令自动生成名称</span>
-          <button id="btn-multi-start" class="primary">开始顺序发送</button>
-        </div>
-      </section>
-
-      <div id="right-inner-split" class="vsplit inner-vsplit" data-resize="right-inner" title="拖动调整多字符串与协议解析的宽度"></div>
-
-      <section id="protocol-view" class="right-view">
+      <section id="protocol-view" class="right-view active">
         <div class="pane-title"><span>协议解析</span><span id="proto-name" class="badge badge-off">未加载协议</span></div>
         <div class="proto-bar">
           <select id="proto-library-list" title="从本地资料库选择协议解析工具"></select>
@@ -71,6 +51,26 @@
         <div id="baud-status" class="baud-status"></div>
         <iframe id="result-frame" sandbox="allow-same-origin"></iframe>
         <iframe id="parser-frame" style="display:none"></iframe>
+      </section>
+
+      <div id="right-inner-split" class="vsplit inner-vsplit" data-resize="right-inner" title="拖动调整协议解析与多字符串的宽度"></div>
+
+      <section id="multi-view" class="right-view">
+        <div class="pane-title"><span>多字符串发送</span><small>点名称发送 · 双击名称改名 · 「指令」显示内容，点击编辑</small></div>
+        <div class="dock-toolbar">
+          <label class="ck"><input type="checkbox" id="multi-loop"> 循环发送</label>
+          <label class="ck"><input type="checkbox" id="multi-hex" checked> HEX</label>
+          <button id="btn-multi-import" class="mini">导入 INI</button>
+          <button id="btn-multi-export" class="mini">导出 INI</button>
+          <button id="btn-add-multi" class="mini">＋ 添加</button>
+        </div>
+        <div class="multi-head"><span>启用</span><span>名称（点击发送）</span><span>指令</span></div>
+        <div id="multi-rows"></div>
+        <div class="multi-footer">
+          <span>默认延时</span><input id="multi-interval" type="number" value="1000" min="10"><span>ms</span>
+          <span class="auto-name-note">导入时按指令自动生成名称</span>
+          <button id="btn-multi-start" class="primary">开始顺序发送</button>
+        </div>
       </section>
     </aside>
   </div>
@@ -148,6 +148,20 @@
     <div class="gen-dialog">
       <div class="gen-head"><span>协议工具 · 指令生成器</span><div class="gen-actions"><button id="btn-gen-import" class="primary">导入单条发送框</button><button id="btn-gen-import-multi" class="primary">导入多字符串</button><button id="btn-gen-send">导入并发送</button><button id="btn-gen-close">关闭</button></div></div>
       <iframe id="gen-frame"></iframe>
+    </div>
+  </div>
+
+  <div id="multi-cmd-modal" class="settings-modal" style="display:none">
+    <div class="settings-dialog">
+      <div class="settings-head"><span>编辑指令</span><button id="btn-multi-cmd-close">×</button></div>
+      <div class="settings-body">
+        <div class="settings-grid cmd-grid">
+          <label>名称</label><input id="multi-cmd-name" type="text" placeholder="指令名称（点击名称即发送）">
+          <label>指令内容</label><textarea id="multi-cmd-text" class="cmd-textarea" placeholder="HEX 示例：A9 9A 01 00 02"></textarea>
+        </div>
+        <p id="multi-cmd-hint"></p>
+        <div class="settings-actions"><button id="btn-multi-cmd-delete" class="danger">删除本条</button><button id="btn-multi-cmd-cancel">取消</button><button id="btn-multi-cmd-save" class="primary">保存</button></div>
+      </div>
     </div>
   </div>
 

@@ -48,3 +48,10 @@ npm run prepare-cache  # 单独跑打包缓存准备
 ## Git 约定
 
 当前工作分支 `codex/udp-upgrade-v2-1`（UDP + 升级工作流），主分支 `main`。提交信息用英文 conventional 风格（如 `feat: add UDP communication and upgrade workflow`）。
+
+## 发版流程（GitHub Releases）
+
+1. `package.json` 里同步升 `version` 和 `build.portable.artifactName`（如 2.2.0 → `COM-Tool-V2.2.0-portable.exe`）。
+2. `npm run dist:portable` 打包（先关掉所有运行中的 COM-Tool 实例，否则产物被锁会卡住）。
+3. `git push origin <branch> && git push origin HEAD:main`，然后 `gh release create vX.Y.Z release/COM-Tool-VX.Y.Z-portable.exe --title ... --notes ...`（gh 已登录 yxy200306）。
+4. 老版本 Release 永不删除，即版本管理方案；协议/升级私有参数功能只留在本地工作区，**不进任何提交**。

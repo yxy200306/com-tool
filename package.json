@@ -1,6 +1,6 @@
 {
   "name": "com-tool",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "COM-Tool V2.1 multi-window serial assistant with pluggable protocol parsers",
   "main": "main.js",
   "scripts": {
@@ -52,7 +52,7 @@
       ]
     },
     "portable": {
-      "artifactName": "COM-Tool-V2.1-portable.exe",
+      "artifactName": "COM-Tool-V2.2.0-portable.exe",
       "unpackDirName": true
     },
     "nsis": {
